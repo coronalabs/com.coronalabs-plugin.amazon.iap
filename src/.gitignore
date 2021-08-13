@@ -1,0 +1,4 @@
+android/plugin/build/
+android/app/build/
+android/.gradle/
+android/.idea/
