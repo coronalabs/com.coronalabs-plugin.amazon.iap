@@ -1,5 +1,9 @@
 package plugin.amazon.iap;
 
+import com.amazon.device.drm.LicensingListener;
+import com.amazon.device.drm.LicensingService;
+import com.amazon.device.drm.model.AppstoreSDKModes;
+import com.amazon.device.drm.model.LicenseResponse;
 import com.amazon.device.iap.PurchasingService;
 import com.amazon.device.iap.model.FulfillmentResult;
 import com.amazon.device.iap.model.Product;
@@ -33,6 +37,7 @@ public class LuaLoader implements JavaFunction, CoronaRuntimeListener, Purchasin
 	private int luaStoreListener = CoronaLua.REFNIL;
 	private int luaUserDataListener = CoronaLua.REFNIL;
 	private int luaLoadProductsListener = CoronaLua.REFNIL;
+	private int luaLicensingistener = CoronaLua.REFNIL;
 
 	//region CoronaRuntimeListener methods
 	@Override
@@ -71,7 +76,8 @@ public class LuaLoader implements JavaFunction, CoronaRuntimeListener, Purchasin
 			new LoadProductsWrapper(),
 			new PurchaseWrapper(),
 			new RestoreWrapper(),
-			new FinishTransactionWrapper()
+			new FinishTransactionWrapper(),
+			new VerifyDRMWrapper(),
 		};
 
 		String luaPluginName = L.toString(1);
@@ -119,9 +125,26 @@ public class LuaLoader implements JavaFunction, CoronaRuntimeListener, Purchasin
 			luaStoreListener = CoronaLua.newRef(L, luaStoreListenerIndex);
 		}
 
-		PurchasingService.registerListener(activity, this);
-		PurchasingService.getPurchaseUpdates(false);
-		PurchasingService.getUserData();
+		//We need to check drm to use isSandbox
+		final PurchasingListener purchaseListener = this;
+		Runnable activityRunnable = new Runnable() {
+			public void run() {
+				PurchasingService.registerListener(activity, purchaseListener);
+				PurchasingService.getPurchaseUpdates(false);
+				PurchasingService.getUserData();
+				LicensingService.verifyLicense(CoronaEnvironment.getCoronaActivity(), new LicensingListener() {
+					@Override
+					public void onLicenseCommandResponse(final LicenseResponse licenseResponse) {}
+				});
+			}
+		};
+
+		if (activity != null) {
+			activity.runOnUiThread(activityRunnable);
+		}
+
+
+
 
 		isActive = true;
 		L.rawGet(LuaState.REGISTRYINDEX, luaPlugin);
@@ -142,7 +165,12 @@ public class LuaLoader implements JavaFunction, CoronaRuntimeListener, Purchasin
 
 	// store.isSandboxMode()
 	public int isSandboxMode(LuaState L) {
-		L.pushBoolean(PurchasingService.IS_SANDBOX_MODE);
+		if(LicensingService.getAppstoreSDKMode().equals(AppstoreSDKModes.SANDBOX)){
+			L.pushBoolean(true);
+		}else{
+			L.pushBoolean(false);
+		}
+
 		return 1;
 	}
 
@@ -227,6 +255,60 @@ public class LuaLoader implements JavaFunction, CoronaRuntimeListener, Purchasin
 		}
 
 		L.pop(L.getTop());
+		return 0;
+	}
+	//store.verify
+	public int verifyDRM(LuaState L) {
+		Utils.checkIsActive(this);
+
+		if (CoronaLua.isListener(L, 1, "licensing")) {
+			luaLicensingistener = CoronaLua.newRef(L, 1);
+		}
+		CoronaRuntimeTask task = new CoronaRuntimeTask() {
+			public void executeUsing(CoronaRuntime runtime) {
+				LicensingService.verifyLicense(CoronaEnvironment.getApplicationContext(), new LicensingListener() {
+					@Override
+					public void onLicenseCommandResponse(final LicenseResponse licenseResponse) {
+							if (luaLicensingistener == CoronaLua.REFNIL) {
+								return;
+							}
+							LuaState L = runtime.getLuaState();
+							Hashtable<Object, Object> event = new Hashtable<>();
+							event.put("name", "licensing");
+							event.put("provider", "amazaon");
+							if (licenseResponse.getRequestStatus() == LicenseResponse.RequestStatus.LICENSED) {
+								event.put("isError", false);
+								event.put("isVerified", true);
+								event.put("response", Utils.responseStatusToString(licenseResponse.getRequestStatus()));
+								CoronaLua.pushHashtable(L, event);
+								try {
+									CoronaLua.dispatchEvent(L, luaLicensingistener, 0);
+								} catch (Exception ex) {
+									ex.printStackTrace();
+								}
+							} else {
+								event.put("isError", true);
+								event.put("isVerified", false);
+								event.put("response", Utils.responseStatusToString(licenseResponse.getRequestStatus()));
+
+								CoronaLua.pushHashtable(L, event);
+								try {
+									CoronaLua.dispatchEvent(L, luaLicensingistener, 0);
+								} catch (Exception ex) {
+									ex.printStackTrace();
+								}
+							}
+
+						}
+
+				});
+			}
+		};
+		CoronaActivity activity = CoronaEnvironment.getCoronaActivity();
+		if (activity != null) {
+			activity.getRuntimeTaskDispatcher().send(task);
+		}
+
 		return 0;
 	}
 	//endregion
@@ -520,5 +602,17 @@ public class LuaLoader implements JavaFunction, CoronaRuntimeListener, Purchasin
 			return finishTransaction(L);
 		}
 	}
+	private class VerifyDRMWrapper implements NamedJavaFunction {
+		@Override
+		public String getName() {
+			return "verify";
+		}
+
+		@Override
+		public int invoke(LuaState L) {
+			return verifyDRM(L);
+		}
+	}
+
 	//endregion
 }

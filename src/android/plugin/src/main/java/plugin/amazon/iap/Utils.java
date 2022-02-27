@@ -1,5 +1,6 @@
 package plugin.amazon.iap;
 
+import com.amazon.device.drm.model.LicenseResponse;
 import com.amazon.device.iap.model.ProductDataResponse;
 import com.amazon.device.iap.model.ProductType;
 import com.amazon.device.iap.model.PurchaseResponse;
@@ -90,6 +91,24 @@ public class Utils {
                 return "not supported";
             case SUCCESSFUL:
                 return "successful";
+            default:
+                return "";
+        }
+    }
+    static String responseStatusToString(LicenseResponse.RequestStatus status) {
+        switch (status) {
+            case LICENSED:
+                return "Licensed";
+            case NOT_LICENSED:
+                return "Not licensed";
+            case ERROR_VERIFICATION:
+                return "Error with verification";
+            case ERROR_INVALID_LICENSING_KEYS:
+                return "Invalid licensing keys";
+            case EXPIRED:
+                return "Expired";
+            case UNKNOWN_ERROR:
+                return "Unknown error";
             default:
                 return "";
         }
