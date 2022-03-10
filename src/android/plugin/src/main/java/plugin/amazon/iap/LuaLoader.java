@@ -29,6 +29,7 @@ import com.naef.jnlua.NamedJavaFunction;
 
 import java.util.HashSet;
 import java.util.Hashtable;
+import java.util.concurrent.Semaphore;
 
 public class LuaLoader implements JavaFunction, CoronaRuntimeListener, PurchasingListener {
 	protected boolean isActive;
@@ -127,6 +128,7 @@ public class LuaLoader implements JavaFunction, CoronaRuntimeListener, Purchasin
 
 		//We need to check drm to use isSandbox
 		final PurchasingListener purchaseListener = this;
+		final Semaphore mutex = new Semaphore(0);//used to make sure everything is called first in sync
 		Runnable activityRunnable = new Runnable() {
 			public void run() {
 				PurchasingService.registerListener(activity, purchaseListener);
@@ -136,11 +138,17 @@ public class LuaLoader implements JavaFunction, CoronaRuntimeListener, Purchasin
 					@Override
 					public void onLicenseCommandResponse(final LicenseResponse licenseResponse) {}
 				});
+				mutex.release();
 			}
 		};
 
 		if (activity != null) {
 			activity.runOnUiThread(activityRunnable);
+			try {
+				mutex.acquire();
+			} catch (InterruptedException e) {
+				e.printStackTrace();
+			}
 		}
 
 
@@ -165,6 +173,7 @@ public class LuaLoader implements JavaFunction, CoronaRuntimeListener, Purchasin
 
 	// store.isSandboxMode()
 	public int isSandboxMode(LuaState L) {
+		Utils.checkIsActive(this);
 		if(LicensingService.getAppstoreSDKMode().equals(AppstoreSDKModes.SANDBOX)){
 			L.pushBoolean(true);
 		}else{
