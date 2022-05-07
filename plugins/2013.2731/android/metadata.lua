@@ -4,6 +4,7 @@ local metadata = {
 		manifest =  {
 			applicationChildElements = {
 [[<receiver android:name = "com.amazon.device.iap.ResponseReceiver"
+      android:exported="true"
       android:permission = "com.amazon.inapp.purchasing.Permission.NOTIFY">
     <intent-filter>
       <action android:name = "com.amazon.inapp.purchasing.NOTIFY" />
